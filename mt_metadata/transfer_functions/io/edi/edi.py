@@ -252,7 +252,7 @@ class EDI:
         frequency.
 
         """
-        if self.frequency is not None:
+        if self.frequency is not None and self.frequency.size > 1:
             if self.frequency[0] < self.frequency[1]:
                 self.logger.debug(
                     "Ordered arrays to be arranged from high to low frequency"
