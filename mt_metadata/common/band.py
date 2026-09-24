@@ -247,8 +247,27 @@ class Band(MetadataBase):
         return indices
 
     def set_indices_from_frequencies(self, frequencies: np.ndarray) -> None:
-        """assumes min/max freqs are defined"""
+        """assumes min/max freqs are defined
+
+        Raises
+        ------
+        ValueError
+            If no frequency falls inside the band.
+        """
         indices = self._indices_from_frequencies(frequencies)
+        if len(indices) == 0:
+            frequencies = np.asarray(frequencies)
+            spacing = np.diff(frequencies[:2])
+            spacing = f"{spacing[0]:g} Hz" if len(spacing) else "undefined"
+            level = (
+                ""
+                if self.decimation_level is None
+                else f" (decimation level {self.decimation_level})"
+            )
+            raise ValueError(
+                f"Band {self.frequency_min:g}-{self.frequency_max:g} Hz{level} "
+                f"contains no FFT harmonic; the harmonic spacing is {spacing}"
+            )
         self.index_min = indices[0]
         self.index_max = indices[-1]
 
