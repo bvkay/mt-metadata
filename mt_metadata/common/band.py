@@ -37,6 +37,14 @@ class ClosedEnum(StrEnumerationBase):
     both = "both"
 
 
+class BandHarmonicError(ValueError, IndexError):
+    """A band holds no FFT harmonic.
+
+    Subclasses IndexError as well as ValueError so callers that caught the
+    IndexError raised before keep working.
+    """
+
+
 class Band(MetadataBase):
     decimation_level: Annotated[
         int,
@@ -251,8 +259,9 @@ class Band(MetadataBase):
 
         Raises
         ------
-        ValueError
-            If no frequency falls inside the band.
+        BandHarmonicError
+            If no frequency falls inside the band. It is a ValueError and an
+            IndexError.
         """
         indices = self._indices_from_frequencies(frequencies)
         if len(indices) == 0:
@@ -264,7 +273,7 @@ class Band(MetadataBase):
                 if self.decimation_level is None
                 else f" (decimation level {self.decimation_level})"
             )
-            raise ValueError(
+            raise BandHarmonicError(
                 f"Band {self.frequency_min:g}-{self.frequency_max:g} Hz{level} "
                 f"contains no FFT harmonic; the harmonic spacing is {spacing}"
             )

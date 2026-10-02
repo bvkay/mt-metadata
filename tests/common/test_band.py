@@ -15,7 +15,12 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from mt_metadata.common.band import Band, CenterAveragingTypeEnum, ClosedEnum
+from mt_metadata.common.band import (
+    Band,
+    BandHarmonicError,
+    CenterAveragingTypeEnum,
+    ClosedEnum,
+)
 
 # =============================================================================
 # Fixtures
@@ -241,6 +246,15 @@ class TestBandIndicesAndHarmonics:
             band.set_indices_from_frequencies(np.fft.rfftfreq(128, 0.1))
         assert band.index_min is None
         assert band.index_max is None
+
+    def test_indices_from_frequencies_no_harmonic_error_type(self):
+        """The no-harmonic error is caught as ValueError and as IndexError"""
+        band = Band(frequency_min=0.1575, frequency_max=0.1984)
+        with pytest.raises(BandHarmonicError) as error:
+            band.set_indices_from_frequencies(np.fft.rfftfreq(128, 0.1))
+        assert isinstance(error.value, ValueError)
+        assert isinstance(error.value, IndexError)
+        assert "0.1575-0.1984 Hz contains no FFT harmonic" in str(error.value)
 
     def test_in_band_harmonics_left_closed(self, band_default, frequencies):
         """Test in-band harmonics for left-closed band"""
