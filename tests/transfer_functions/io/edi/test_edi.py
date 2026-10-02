@@ -11,6 +11,7 @@ import numpy as np
 #
 # =============================================================================
 import pytest
+from loguru import logger
 from pydantic import HttpUrl
 
 from mt_metadata.transfer_functions import TF
@@ -264,6 +265,55 @@ class TestDeclinationRoundTrip:
         dec = tf_in.station_metadata.location.declination
         assert dec.value == -1.07
         assert dec.comments.value == "IGRF-13 at the site"
+
+
+class TestRotationAngleBlocks:
+    """A TROT block that differs from ZROT is reported and ZROT is kept."""
+
+    @staticmethod
+    def _write_rot(fn, zrot, trot):
+        _make_tf(with_tipper=True).write(fn=fn, file_type="edi")
+        out = []
+        block = None
+        for line in fn.read_text().splitlines():
+            if line.startswith(">"):
+                block = line[1:].split()[0].lower() if line[1:].split() else None
+            elif block == "zrot":
+                line = " ".join(f"{zrot:.6E}" for _ in line.split())
+            elif block == "trot":
+                line = " ".join(f"{trot:.6E}" for _ in line.split())
+            out.append(line)
+        fn.write_text("\n".join(out) + "\n")
+
+    @staticmethod
+    def _read_with_warnings(fn):
+        messages = []
+        sink = logger.add(lambda m: messages.append(str(m)), level="WARNING")
+        try:
+            edi = EDI(fn=fn)
+        finally:
+            logger.remove(sink)
+        return edi, [m for m in messages if "TROT" in m]
+
+    def test_differing_trot_warns(self, tmp_path):
+        """Test that a TROT differing from ZROT warns once and ZROT is kept."""
+        fn = tmp_path / "rot_diff.edi"
+        self._write_rot(fn, 5.0, 7.0)
+        edi, warnings = self._read_with_warnings(fn)
+
+        assert np.allclose(edi.rotation_angle, 5.0)
+        assert len(warnings) == 1
+        assert "TROT [7.0]" in warnings[0]
+        assert "ZROT [5.0]" in warnings[0]
+
+    def test_equal_trot_silent(self, tmp_path):
+        """Test that a TROT equal to ZROT gives no warning."""
+        fn = tmp_path / "rot_same.edi"
+        self._write_rot(fn, 5.0, 5.0)
+        edi, warnings = self._read_with_warnings(fn)
+
+        assert np.allclose(edi.rotation_angle, 5.0)
+        assert warnings == []
 
 
 class TestAzimuthWriteTwice:
