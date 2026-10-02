@@ -1,5 +1,7 @@
 import pytest
+from loguru import logger
 
+from mt_metadata.common import units
 from mt_metadata.common.units import (
     find_separator,
     get_unit_from_df,
@@ -244,6 +246,78 @@ class TestUtilityFunctions:
         # Test with empty string which should handle gracefully
         with pytest.raises(ValueError):
             parse_unit_string("")
+
+
+class _CountingTable:
+    """Stands in for UNITS_DF and counts the lookups made on it."""
+
+    def __init__(self, table):
+        self.table = table
+        self.lookups = 0
+
+    def __getitem__(self, key):
+        self.lookups += 1
+        return self.table[key]
+
+
+class TestGetUnitFromDfCache:
+    """Rows found in UNITS_DF are cached; unknown units are not."""
+
+    def test_second_lookup_skips_table(self, monkeypatch):
+        table = _CountingTable(UNITS_DF)
+        monkeypatch.setattr(units, "UNITS_DF", table)
+
+        first = get_unit_from_df("mV")
+        lookups = table.lookups
+        second = get_unit_from_df("mV")
+
+        assert lookups > 0
+        assert table.lookups == lookups
+        assert second.model_dump() == first.model_dump()
+
+    @pytest.mark.parametrize(
+        "value", ["mV", "milliVolt", "millivolt", "nT", "Hz", "M", "digital counts"]
+    )
+    def test_cached_equals_uncached(self, monkeypatch, value):
+        get_unit_from_df(value)
+        cached = get_unit_from_df(value)
+        # replacing the table empties the cache, so this lookup searches the table
+        monkeypatch.setattr(units, "UNITS_DF", UNITS_DF.copy())
+        uncached = get_unit_from_df(value)
+
+        assert cached.model_dump() == uncached.model_dump()
+
+    def test_returned_unit_is_a_new_object(self):
+        first = get_unit_from_df("mV")
+        first.description = "changed"
+        second = get_unit_from_df("mV")
+
+        assert second is not first
+        assert second.description != "changed"
+
+    def test_replaced_table_is_used(self, monkeypatch):
+        get_unit_from_df("mV")
+        table = UNITS_DF.copy()
+        table.loc[table["symbol"] == "mV", "description"] = "changed"
+        monkeypatch.setattr(units, "UNITS_DF", table)
+
+        assert get_unit_from_df("mV").description == "changed"
+
+    def test_unknown_unit_warns_every_call(self):
+        messages = []
+        sink = logger.add(lambda m: messages.append(str(m)), level="WARNING")
+        try:
+            units_out = [get_unit_from_df("not_a_unit") for _ in range(2)]
+        finally:
+            logger.remove(sink)
+
+        assert [u.name for u in units_out] == ["unknown", "unknown"]
+        assert len([m for m in messages if "'not_a_unit' not found" in m]) == 2
+
+    def test_unknown_unit_raises_every_call(self):
+        for _ in range(2):
+            with pytest.raises(KeyError, match="not_a_unit"):
+                get_unit_from_df("not_a_unit", allow_none=False)
 
 
 class TestUnitsDataFrame:

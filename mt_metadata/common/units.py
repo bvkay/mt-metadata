@@ -179,6 +179,11 @@ for prefix_name, prefix_symbol in prefixes.items():
 # Convert to a pandas DataFrame
 UNITS_DF = pd.DataFrame(all_units)
 
+# Rows of UNITS_DF found by get_unit_from_df, keyed by the value looked up.
+# Unknown units are not kept, so they warn or raise on every call.
+_UNIT_ROW_CACHE: dict[str, dict] = {}
+_UNIT_ROW_CACHE_TABLE = UNITS_DF
+
 
 class Unit(BaseModel):
     model_config = ConfigDict(
@@ -392,6 +397,23 @@ def get_unit_object(unit: str, allow_none=True) -> Unit:
     return unit
 
 
+def _unit_row_cache() -> dict[str, dict]:
+    """
+    Return the cache of rows found in UNITS_DF.
+
+    Returns
+    -------
+    dict
+        Rows keyed by the value looked up. The cache is emptied when
+        UNITS_DF is replaced by another DataFrame.
+    """
+    global _UNIT_ROW_CACHE_TABLE
+    if _UNIT_ROW_CACHE_TABLE is not UNITS_DF:
+        _UNIT_ROW_CACHE.clear()
+        _UNIT_ROW_CACHE_TABLE = UNITS_DF
+    return _UNIT_ROW_CACHE
+
+
 def get_unit_from_df(value: str, allow_none=True) -> Unit:
     """
     Retrieve a row from the UNITS_DF DataFrame based on the unit's name or symbol.
@@ -410,7 +432,16 @@ def get_unit_from_df(value: str, allow_none=True) -> Unit:
     ------
     KeyError
         If the unit is not found in the DataFrame.
+
+    Notes
+    -----
+    A row that is found is cached by value and a new Unit is built from it
+    on each call. An unknown unit is searched for on every call.
     """
+    row_cache = _unit_row_cache()
+    if isinstance(value, str) and value in row_cache:
+        return Unit(**row_cache[value])
+
     # First try exact match for symbol (case-sensitive) to handle prefixes correctly
     # (e.g., 'mV' should match milliVolt, not megaVolt)
     unit_row = UNITS_DF[
@@ -424,9 +455,9 @@ def get_unit_from_df(value: str, allow_none=True) -> Unit:
 
     # Check if a match was found
     if not unit_row.empty:
-        return Unit(
-            **unit_row.iloc[0].to_dict()
-        )  # Return the first matching row as a Series
+        row = unit_row.iloc[0].to_dict()
+        row_cache[value] = row
+        return Unit(**row)  # Return the first matching row as a Unit
     else:
         if allow_none:
             logger.warning(
