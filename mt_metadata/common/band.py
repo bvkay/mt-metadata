@@ -37,6 +37,14 @@ class ClosedEnum(StrEnumerationBase):
     both = "both"
 
 
+class BandHarmonicError(ValueError, IndexError):
+    """A band holds no FFT harmonic.
+
+    Subclasses IndexError as well as ValueError so callers that caught the
+    IndexError raised before keep working.
+    """
+
+
 class Band(MetadataBase):
     decimation_level: Annotated[
         int,
@@ -247,8 +255,28 @@ class Band(MetadataBase):
         return indices
 
     def set_indices_from_frequencies(self, frequencies: np.ndarray) -> None:
-        """assumes min/max freqs are defined"""
+        """assumes min/max freqs are defined
+
+        Raises
+        ------
+        BandHarmonicError
+            If no frequency falls inside the band. It is a ValueError and an
+            IndexError.
+        """
         indices = self._indices_from_frequencies(frequencies)
+        if len(indices) == 0:
+            frequencies = np.asarray(frequencies)
+            spacing = np.diff(frequencies[:2])
+            spacing = f"{spacing[0]:g} Hz" if len(spacing) else "undefined"
+            level = (
+                ""
+                if self.decimation_level is None
+                else f" (decimation level {self.decimation_level})"
+            )
+            raise BandHarmonicError(
+                f"Band {self.frequency_min:g}-{self.frequency_max:g} Hz{level} "
+                f"contains no FFT harmonic; the harmonic spacing is {spacing}"
+            )
         self.index_min = indices[0]
         self.index_max = indices[-1]
 
