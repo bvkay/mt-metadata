@@ -811,5 +811,60 @@ def test_longitude_format_in_output(longitude_format, expected_key, populated_he
     assert f"{expected_key}=" in header_text
 
 
+class TestHeaderDeclination:
+    """Declination is written in plain and dotted forms and read from both."""
+
+    def test_read_plain_declination(self):
+        header = Header()
+        header.read_header([">HEAD", "DATAID=mt001", "DECLINATION=-2.5", ">INFO"])
+        assert header.declination.value == -2.5
+
+    def test_read_dotted_declination(self):
+        header = Header()
+        header.read_header(
+            [
+                ">HEAD",
+                "DATAID=mt001",
+                "DECLINATION.VALUE=-1.07",
+                "DECLINATION.MODEL=IGRF-13",
+                "DECLINATION.EPOCH=2023.5",
+                ">INFO",
+            ]
+        )
+        assert header.declination.value == -1.07
+        assert header.declination.model == "IGRF-13"
+        assert header.declination.epoch == "2023.5"
+
+    def test_write_read_round_trip(self):
+        header = Header(dataid="mt001")
+        header.declination.value = -1.07
+        header.declination.model = "IGRF-13"
+        header.declination.epoch = "2023.5"
+        lines = [ln.strip() for ln in header.write_header()]
+
+        assert "DECLINATION=-1.07" in lines
+        assert "DECLINATION.VALUE=-1.07" in lines
+        assert "DECLINATION.MODEL=IGRF-13" in lines
+        assert "DECLINATION.EPOCH=2023.5" in lines
+        assert not any("DECLINATION.COMMENTS" in ln for ln in lines)
+
+        header_in = Header()
+        header_in.read_header(lines)
+        assert header_in.declination.value == -1.07
+        assert header_in.declination.model == "IGRF-13"
+        assert header_in.declination.epoch == "2023.5"
+
+    def test_unset_zero_declination_not_written(self):
+        lines = Header(dataid="mt001").write_header()
+        assert not any("DECLINATION" in ln for ln in lines)
+
+    def test_zero_declination_with_epoch_written(self):
+        header = Header(dataid="mt001")
+        header.declination.epoch = "2023.5"
+        lines = [ln.strip() for ln in header.write_header()]
+        assert "DECLINATION=0.0" in lines
+        assert "DECLINATION.EPOCH=2023.5" in lines
+
+
 if __name__ == "__main__":
     pytest.main(["-v", __file__])

@@ -11,8 +11,10 @@ import numpy as np
 #
 # =============================================================================
 import pytest
+from loguru import logger
 from pydantic import HttpUrl
 
+from mt_metadata.transfer_functions import TF
 from mt_metadata.transfer_functions.io.edi import EDI
 from mt_metadata.transfer_functions.io.edi.metadata import EMeasurement, HMeasurement
 from mt_metadata.utils.validators import validate_doi
@@ -200,6 +202,89 @@ class TestSurveyMetadataDoiHandling:
             else "citation_dataset.doi"
         )
         assert survey_metadata.get_attr_from_name(other_field) in [None, "None"]
+
+
+def _make_tf(with_tipper=False):
+    """Small TF with a declination and unit impedance."""
+    tf = TF()
+    tf.station = "dec01"
+    tf.station_metadata.location.latitude = 31.87
+    tf.station_metadata.location.longitude = -7.93
+    tf.station_metadata.location.declination.value = -1.07
+    tf.station_metadata.location.declination.model = "IGRF-13"
+    tf.station_metadata.location.declination.epoch = "2023.5"
+    tf.period = np.logspace(-2, 2, 6)
+    tf.impedance = np.ones((6, 2, 2), dtype=complex)
+    tf.impedance_error = np.full((6, 2, 2), 0.1)
+    if with_tipper:
+        tf.tipper = np.full((6, 1, 2), 0.1 + 0.0j)
+        tf.tipper_error = np.full((6, 1, 2), 0.01)
+    return tf
+
+
+class TestDeclinationRoundTrip:
+    """Declination value, model and epoch survive an EDI write and read."""
+
+    def test_tf_round_trip(self, tmp_path):
+        fn = tmp_path / "dec01.edi"
+        _make_tf().write(fn=fn, file_type="edi")
+
+        lines = [ln.strip() for ln in fn.read_text().splitlines()]
+        assert "DECLINATION=-1.07" in lines
+
+        tf = TF(fn=fn)
+        tf.read()
+        dec = tf.station_metadata.location.declination
+        assert dec.value == -1.07
+        assert dec.model == "IGRF-13"
+        assert dec.epoch == "2023.5"
+
+
+class TestRotationAngleBlocks:
+    """A TROT block that differs from ZROT is reported and ZROT is kept."""
+
+    @staticmethod
+    def _write_rot(fn, zrot, trot):
+        _make_tf(with_tipper=True).write(fn=fn, file_type="edi")
+        out = []
+        block = None
+        for line in fn.read_text().splitlines():
+            if line.startswith(">"):
+                block = line[1:].split()[0].lower() if line[1:].split() else None
+            elif block == "zrot":
+                line = " ".join(f"{zrot:.6E}" for _ in line.split())
+            elif block == "trot":
+                line = " ".join(f"{trot:.6E}" for _ in line.split())
+            out.append(line)
+        fn.write_text("\n".join(out) + "\n")
+
+    @staticmethod
+    def _read_with_warnings(fn):
+        messages = []
+        sink = logger.add(lambda m: messages.append(str(m)), level="WARNING")
+        try:
+            edi = EDI(fn=fn)
+        finally:
+            logger.remove(sink)
+        return edi, [m for m in messages if "TROT" in m]
+
+    def test_differing_trot_warns(self, tmp_path):
+        fn = tmp_path / "rot_diff.edi"
+        self._write_rot(fn, 5.0, 7.0)
+        edi, warnings = self._read_with_warnings(fn)
+
+        assert np.allclose(edi.rotation_angle, 5.0)
+        assert len(warnings) == 1
+        assert "TROT [7.0]" in warnings[0]
+        assert "ZROT [5.0]" in warnings[0]
+
+    def test_equal_trot_silent(self, tmp_path):
+        fn = tmp_path / "rot_same.edi"
+        self._write_rot(fn, 5.0, 5.0)
+        edi, warnings = self._read_with_warnings(fn)
+
+        assert np.allclose(edi.rotation_angle, 5.0)
+        assert warnings == []
 
 
 # =============================================================================

@@ -524,8 +524,10 @@ class DefineMeasurement(MetadataBase):
         if channel.component is None:
             return
 
+        # translated_azimuth is set only after a rotation; when it is None
+        # the channel is still in its measured orientation.
         azm = channel.measurement_azimuth
-        if azm != channel.translated_azimuth:
+        if channel.translated_azimuth is not None:
             azm = channel.translated_azimuth
         if azm is None:
             azm = 0.0

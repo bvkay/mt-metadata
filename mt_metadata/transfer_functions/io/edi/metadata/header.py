@@ -391,6 +391,8 @@ class Header(BasicLocation, GeographicLocation):
         - Station IDs are automatically validated and normalized to lowercase
         - Coordinate systems are normalized to 'geographic', 'geomagnetic', or 'station'
         - Phoenix MT-Editor format is automatically detected
+        - Declination is read from a plain DECLINATION= line and from
+          DECLINATION.VALUE=, DECLINATION.MODEL= and DECLINATION.EPOCH= lines
 
         """
 
@@ -419,14 +421,19 @@ class Header(BasicLocation, GeographicLocation):
                 elif value in ["millivolts_per_kilometer_per_nanotesla"]:
                     value = "milliVolt per kilometer per nanoTesla"
 
-            if key == "declination":
-                if value in ["None", "none", None, "null"]:
+            if key == "declination" or key.startswith("declination."):
+                # accept DECLINATION= and DECLINATION.VALUE/MODEL/EPOCH=
+                attr = key.split(".", 1)[1] if "." in key else "value"
+                if attr == "value" and value in ["None", "none", None, "null"]:
                     value = 0.0
+                if attr not in ["value", "model", "epoch"]:
+                    logger.debug(f"Skipping header key {key}")
+                    continue
                 try:
-                    setattr(self.declination, "value", value)
+                    setattr(self.declination, attr, value)
                 except Exception as error:
                     logger.warning(
-                        f"Could not set declination value with {value}, cause the following error {error}"
+                        f"Could not set declination {attr} with {value}, cause the following error {error}"
                     )
                 continue
             elif key in ["long", "lon", "lonigutde"]:
@@ -491,7 +498,12 @@ class Header(BasicLocation, GeographicLocation):
         -----
         - filedate is automatically set to current UTC time
         - progvers is set to mt_metadata version
-        - Zero declination values are omitted from output
+        - Declination is written as a plain DECLINATION=value line, which
+          other EDI readers expect, followed by DECLINATION.MODEL,
+          DECLINATION.EPOCH and DECLINATION.VALUE lines. It is omitted only
+          when the value is 0.0 and no epoch is set, so an explicit zero
+          with an epoch is kept apart from an unset declination (the model
+          defaults to IGRF and cannot mark the difference).
         - None values are skipped
 
         """
@@ -502,8 +514,14 @@ class Header(BasicLocation, GeographicLocation):
         self.progdate = "2021-12-01"
 
         header_lines = [">HEAD\n"]
+        declination_written = False
         for key, value in self.to_dict(single=True, required=required).items():
             if key in ["x", "x2", "y", "y2", "z", "z2"]:
+                continue
+            if key.startswith("declination"):
+                if not declination_written:
+                    header_lines += self._write_declination_lines()
+                    declination_written = True
                 continue
             if value in [None, "None"]:
                 continue
@@ -513,9 +531,6 @@ class Header(BasicLocation, GeographicLocation):
                 key = longitude_format.lower()
             elif key in ["elevation"]:
                 key = "elev"
-            if "declination" in key:
-                if self.declination.value == 0.0:
-                    continue
             if key in ["lat", "lon", "long"] and value is not None:
                 if latlon_format.lower() == "dd":
                     value = f"{value:.6f}"
@@ -528,6 +543,33 @@ class Header(BasicLocation, GeographicLocation):
             header_lines.append(f"\t{key.upper()}={value}\n")
         header_lines.append("\n")
         return header_lines
+
+    def _write_declination_lines(self) -> list[str]:
+        """
+        Format the declination as EDI header lines.
+
+        Returns
+        -------
+        list of str
+            A plain DECLINATION=value line, then DECLINATION.MODEL,
+            DECLINATION.EPOCH (when set) and DECLINATION.VALUE lines. Empty
+            when the value is 0.0 and no epoch is set.
+
+        Notes
+        -----
+        The plain line is the form other EDI readers parse; the dotted lines
+        keep the model and epoch. read_header accepts both forms.
+        """
+        dec = self.declination
+        if dec.value == 0.0 and dec.epoch in [None, "None", ""]:
+            return []
+        lines = [f"\tDECLINATION={dec.value}\n"]
+        if dec.model not in [None, "None", ""]:
+            lines.append(f"\tDECLINATION.MODEL={dec.model}\n")
+        if dec.epoch not in [None, "None", ""]:
+            lines.append(f"\tDECLINATION.EPOCH={dec.epoch}\n")
+        lines.append(f"\tDECLINATION.VALUE={dec.value}\n")
+        return lines
 
     def _validate_header_list(self, header_list: list[str] | None) -> list[str] | None:
         """

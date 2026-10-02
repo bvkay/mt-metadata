@@ -482,6 +482,30 @@ class TestDefineMeasurementMetadataConversion:
         assert emeas.y2 == 0.0
 
 
+class TestDefineMeasurementAzimuth:
+    """AZM comes from translated_azimuth only when it is set."""
+
+    @pytest.mark.parametrize("translated_azimuth,expected", [(None, 90.0), (3.0, 3.0)])
+    def test_hmeas_azm(self, translated_azimuth, expected):
+        dm = DefineMeasurement()
+        channel = Magnetic(component="hy", channel_number=2, measurement_azimuth=90.0)
+        channel.translated_azimuth = translated_azimuth
+        dm.from_metadata(channel)
+
+        assert dm.measurements["hy"].azm == expected
+        line = [ln for ln in dm.write_measurement() if "CHTYPE=hy" in ln][0]
+        assert f"AZM={expected:.2f}" in line
+
+    @pytest.mark.parametrize("translated_azimuth,expected", [(None, 90.0), (3.0, 3.0)])
+    def test_emeas_azm(self, translated_azimuth, expected):
+        dm = DefineMeasurement()
+        channel = Electric(component="ey", channel_number=5, measurement_azimuth=90.0)
+        channel.translated_azimuth = translated_azimuth
+        dm.from_metadata(channel)
+
+        assert dm.measurements["ey"].azm == expected
+
+
 class TestDefineMeasurementEdgeCases:
     """Test edge cases and special scenarios for DefineMeasurement."""
 

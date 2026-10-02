@@ -460,6 +460,20 @@ class EDI:
             except KeyError:
                 self.rotation_angle = np.zeros_like(self.frequency)
 
+        # The EDI object, like the TF object, holds one rotation angle, the
+        # impedance one (ZROT). A TROT block that differs is not kept.
+        if "trot" in data_dict and data_dict["trot"].size > 0:
+            trot = np.array(data_dict["trot"])
+            same = trot.shape == self.rotation_angle.shape and np.allclose(
+                trot, self.rotation_angle
+            )
+            if not same:
+                self.logger.warning(
+                    f"TROT {np.unique(trot).tolist()} differs from ZROT "
+                    f"{np.unique(self.rotation_angle).tolist()}; only one "
+                    "rotation angle is held, keeping ZROT"
+                )
+
     def _read_spectra(
         self,
         data_lines: list[str],
@@ -1064,6 +1078,8 @@ class EDI:
         sm.location.elevation = self.elev
         sm.location.datum = self.Header.datum
         sm.location.declination.value = self.Header.declination.value
+        sm.location.declination.model = self.Header.declination.model
+        sm.location.declination.epoch = self.Header.declination.epoch
         sm.orientation.reference_frame = self.Header.coordinate_system.split()[0]
         if self.Header.loc is not None:
             sm.geographic_name = self.Header.loc
