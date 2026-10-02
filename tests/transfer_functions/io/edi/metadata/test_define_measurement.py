@@ -482,6 +482,50 @@ class TestDefineMeasurementMetadataConversion:
         assert emeas.y2 == 0.0
 
 
+class TestDefineMeasurementAzimuth:
+    """AZM comes from translated_azimuth only when it is set."""
+
+    @pytest.mark.parametrize("translated_azimuth,expected", [(None, 90.0), (3.0, 3.0)])
+    def test_hmeas_azm(self, translated_azimuth, expected):
+        """Test HMEAS AZM from the translated azimuth if set, else the measured one."""
+        dm = DefineMeasurement()
+        channel = Magnetic(component="hy", channel_number=2, measurement_azimuth=90.0)
+        channel.translated_azimuth = translated_azimuth
+        dm.from_metadata(channel)
+
+        assert dm.measurements["hy"].azm == expected
+        line = [ln for ln in dm.write_measurement() if "CHTYPE=hy" in ln][0]
+        assert f"AZM={expected:.2f}" in line
+
+    @pytest.mark.parametrize("translated_azimuth,expected", [(None, 90.0), (3.0, 3.0)])
+    def test_emeas_azm(self, translated_azimuth, expected):
+        """Test EMEAS AZM from the translated azimuth if set, else the measured one."""
+        dm = DefineMeasurement()
+        channel = Electric(component="ey", channel_number=5, measurement_azimuth=90.0)
+        channel.translated_azimuth = translated_azimuth
+        dm.from_metadata(channel)
+
+        assert dm.measurements["ey"].azm == expected
+
+    @pytest.mark.parametrize(
+        "channel_class,component,number", [(Electric, "ey", 5), (Magnetic, "hy", 2)]
+    )
+    def test_azm_same_on_second_call(self, channel_class, component, number):
+        """from_metadata leaves the channel azimuths as they were."""
+        channel = channel_class(
+            component=component, channel_number=number, measurement_azimuth=90.0
+        )
+        azms = []
+        for _ in range(2):
+            dm = DefineMeasurement()
+            dm.from_metadata(channel)
+            azms.append(dm.measurements[component].azm)
+
+        assert azms == [90.0, 90.0]
+        assert channel.measurement_azimuth == 90.0
+        assert channel.translated_azimuth is None
+
+
 class TestDefineMeasurementEdgeCases:
     """Test edge cases and special scenarios for DefineMeasurement."""
 
