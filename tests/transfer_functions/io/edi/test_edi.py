@@ -239,6 +239,18 @@ class TestDeclinationRoundTrip:
         assert dec.model == "IGRF-13"
         assert dec.epoch == "2023.5"
 
+    def test_tf_comment_round_trip(self, tmp_path):
+        fn = tmp_path / "dec01.edi"
+        tf = _make_tf()
+        tf.station_metadata.location.declination.comments.value = "IGRF-13 at the site"
+        tf.write(fn=fn, file_type="edi")
+
+        tf_in = TF(fn=fn)
+        tf_in.read()
+        dec = tf_in.station_metadata.location.declination
+        assert dec.value == -1.07
+        assert dec.comments.value == "IGRF-13 at the site"
+
 
 class TestRotationAngleBlocks:
     """A TROT block that differs from ZROT is reported and ZROT is kept."""

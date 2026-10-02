@@ -1080,6 +1080,7 @@ class EDI:
         sm.location.declination.value = self.Header.declination.value
         sm.location.declination.model = self.Header.declination.model
         sm.location.declination.epoch = self.Header.declination.epoch
+        sm.location.declination.comments.value = self.Header.declination.comments.value
         sm.orientation.reference_frame = self.Header.coordinate_system.split()[0]
         if self.Header.loc is not None:
             sm.geographic_name = self.Header.loc

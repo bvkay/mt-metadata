@@ -865,6 +865,30 @@ class TestHeaderDeclination:
         assert "DECLINATION=0.0" in lines
         assert "DECLINATION.EPOCH=2023.5" in lines
 
+    def test_comment_round_trip(self):
+        header = Header(dataid="mt001")
+        header.declination.value = -1.07
+        header.declination.comments.value = "IGRF-13 at the site"
+        lines = [ln.strip() for ln in header.write_header()]
+
+        assert "DECLINATION.COMMENTS=IGRF-13 at the site" in lines
+        assert not any("DECLINATION.COMMENTS." in ln for ln in lines)
+
+        header_in = Header()
+        header_in.read_header(lines)
+        assert header_in.declination.value == -1.07
+        assert header_in.declination.comments.value == "IGRF-13 at the site"
+
+    @pytest.mark.parametrize("comment", [None, "", "   "])
+    def test_empty_comment_not_written(self, comment):
+        header = Header(dataid="mt001")
+        header.declination.value = -1.07
+        header.declination.comments.value = comment
+        lines = [ln.strip() for ln in header.write_header()]
+
+        assert "DECLINATION=-1.07" in lines
+        assert not any("DECLINATION.COMMENTS" in ln for ln in lines)
+
 
 if __name__ == "__main__":
     pytest.main(["-v", __file__])

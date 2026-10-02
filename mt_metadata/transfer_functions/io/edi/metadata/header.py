@@ -392,7 +392,8 @@ class Header(BasicLocation, GeographicLocation):
         - Coordinate systems are normalized to 'geographic', 'geomagnetic', or 'station'
         - Phoenix MT-Editor format is automatically detected
         - Declination is read from a plain DECLINATION= line and from
-          DECLINATION.VALUE=, DECLINATION.MODEL= and DECLINATION.EPOCH= lines
+          DECLINATION.VALUE=, DECLINATION.MODEL=, DECLINATION.EPOCH= and
+          DECLINATION.COMMENTS= lines
 
         """
 
@@ -422,15 +423,18 @@ class Header(BasicLocation, GeographicLocation):
                     value = "milliVolt per kilometer per nanoTesla"
 
             if key == "declination" or key.startswith("declination."):
-                # accept DECLINATION= and DECLINATION.VALUE/MODEL/EPOCH=
+                # accept DECLINATION= and DECLINATION.VALUE/MODEL/EPOCH/COMMENTS=
                 attr = key.split(".", 1)[1] if "." in key else "value"
                 if attr == "value" and value in ["None", "none", None, "null"]:
                     value = 0.0
-                if attr not in ["value", "model", "epoch"]:
+                if attr not in ["value", "model", "epoch", "comments"]:
                     logger.debug(f"Skipping header key {key}")
                     continue
                 try:
-                    setattr(self.declination, attr, value)
+                    if attr == "comments":
+                        self.declination.comments.value = value
+                    else:
+                        setattr(self.declination, attr, value)
                 except Exception as error:
                     logger.warning(
                         f"Could not set declination {attr} with {value}, cause the following error {error}"
@@ -500,10 +504,11 @@ class Header(BasicLocation, GeographicLocation):
         - progvers is set to mt_metadata version
         - Declination is written as a plain DECLINATION=value line, which
           other EDI readers expect, followed by DECLINATION.MODEL,
-          DECLINATION.EPOCH and DECLINATION.VALUE lines. It is omitted only
-          when the value is 0.0 and no epoch is set, so an explicit zero
-          with an epoch is kept apart from an unset declination (the model
-          defaults to IGRF and cannot mark the difference).
+          DECLINATION.EPOCH, DECLINATION.COMMENTS and DECLINATION.VALUE
+          lines. It is omitted only when the value is 0.0 and no epoch is
+          set, so a zero declination with an epoch is still written. The
+          epoch is used for this because the model defaults to IGRF
+          whether a declination was set or not.
         - None values are skipped
 
         """
@@ -552,13 +557,16 @@ class Header(BasicLocation, GeographicLocation):
         -------
         list of str
             A plain DECLINATION=value line, then DECLINATION.MODEL,
-            DECLINATION.EPOCH (when set) and DECLINATION.VALUE lines. Empty
-            when the value is 0.0 and no epoch is set.
+            DECLINATION.EPOCH and DECLINATION.COMMENTS (when set) and
+            DECLINATION.VALUE lines. Empty when the value is 0.0 and no
+            epoch is set.
 
         Notes
         -----
         The plain line is the form other EDI readers parse; the dotted lines
-        keep the model and epoch. read_header accepts both forms.
+        keep the model, epoch and comment. read_header accepts both forms.
+        Only the text of the comment is written, not its time stamp or
+        author, and an empty comment is not written.
         """
         dec = self.declination
         if dec.value == 0.0 and dec.epoch in [None, "None", ""]:
@@ -568,6 +576,9 @@ class Header(BasicLocation, GeographicLocation):
             lines.append(f"\tDECLINATION.MODEL={dec.model}\n")
         if dec.epoch not in [None, "None", ""]:
             lines.append(f"\tDECLINATION.EPOCH={dec.epoch}\n")
+        comment = dec.comments.value
+        if isinstance(comment, str) and comment.strip() not in ["", "None"]:
+            lines.append(f"\tDECLINATION.COMMENTS={comment.strip()}\n")
         lines.append(f"\tDECLINATION.VALUE={dec.value}\n")
         return lines
 
