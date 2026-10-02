@@ -811,5 +811,62 @@ def test_longitude_format_in_output(longitude_format, expected_key, populated_he
     assert f"{expected_key}=" in header_text
 
 
+class TestHeaderDeclination:
+    """Declination lines given by write_header are read back by read_header."""
+
+    def test_read_plain_declination(self):
+        """Test reading the declination from a plain DECLINATION= line."""
+        header = Header()
+        header.read_header([">HEAD", "DATAID=mt001", "DECLINATION=-2.5", ">INFO"])
+        assert header.declination.value == -2.5
+
+    def test_read_dotted_declination(self):
+        """Test reading the declination value, model and epoch from dotted lines."""
+        header = Header()
+        header.read_header(
+            [
+                ">HEAD",
+                "DATAID=mt001",
+                "DECLINATION.VALUE=-1.07",
+                "DECLINATION.MODEL=IGRF-13",
+                "DECLINATION.EPOCH=2023.5",
+                ">INFO",
+            ]
+        )
+        assert header.declination.value == -1.07
+        assert header.declination.model == "IGRF-13"
+        assert header.declination.epoch == "2023.5"
+
+    def test_write_read_round_trip(self):
+        """Test reading back the declination value, model, epoch and comment."""
+        header = Header(dataid="mt001")
+        header.declination.value = -1.07
+        header.declination.model = "IGRF-13"
+        header.declination.epoch = "2023.5"
+        header.declination.comments.value = "IGRF-13 at the site"
+
+        header_in = Header()
+        header_in.read_header([ln.strip() for ln in header.write_header()])
+        assert header_in.declination.value == -1.07
+        assert header_in.declination.model == "IGRF-13"
+        assert header_in.declination.epoch == "2023.5"
+        assert header_in.declination.comments.value == "IGRF-13 at the site"
+
+    def test_unset_zero_declination_not_written(self):
+        """Test that an unset zero declination writes no DECLINATION line."""
+        lines = Header(dataid="mt001").write_header()
+        assert not any("DECLINATION" in ln for ln in lines)
+
+    def test_zero_declination_with_epoch_kept(self):
+        """Test that a zero declination with an epoch is written and read back."""
+        header = Header(dataid="mt001")
+        header.declination.epoch = "2023.5"
+
+        header_in = Header()
+        header_in.read_header([ln.strip() for ln in header.write_header()])
+        assert header_in.declination.value == 0.0
+        assert header_in.declination.epoch == "2023.5"
+
+
 if __name__ == "__main__":
     pytest.main(["-v", __file__])

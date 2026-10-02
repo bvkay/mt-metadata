@@ -391,6 +391,9 @@ class Header(BasicLocation, GeographicLocation):
         - Station IDs are automatically validated and normalized to lowercase
         - Coordinate systems are normalized to 'geographic', 'geomagnetic', or 'station'
         - Phoenix MT-Editor format is automatically detected
+        - Declination is read from a plain DECLINATION= line and from
+          DECLINATION.VALUE=, DECLINATION.MODEL=, DECLINATION.EPOCH= and
+          DECLINATION.COMMENTS= lines
 
         """
 
@@ -419,14 +422,22 @@ class Header(BasicLocation, GeographicLocation):
                 elif value in ["millivolts_per_kilometer_per_nanotesla"]:
                     value = "milliVolt per kilometer per nanoTesla"
 
-            if key == "declination":
-                if value in ["None", "none", None, "null"]:
+            if key == "declination" or key.startswith("declination."):
+                # accept DECLINATION= and DECLINATION.VALUE/MODEL/EPOCH/COMMENTS=
+                attr = key.split(".", 1)[1] if "." in key else "value"
+                if attr == "value" and value in ["None", "none", None, "null"]:
                     value = 0.0
+                if attr not in ["value", "model", "epoch", "comments"]:
+                    logger.debug(f"Skipping header key {key}")
+                    continue
                 try:
-                    setattr(self.declination, "value", value)
+                    if attr == "comments":
+                        self.declination.comments.value = value
+                    else:
+                        setattr(self.declination, attr, value)
                 except Exception as error:
                     logger.warning(
-                        f"Could not set declination value with {value}, cause the following error {error}"
+                        f"Could not set declination {attr} with {value}, cause the following error {error}"
                     )
                 continue
             elif key in ["long", "lon", "lonigutde"]:
@@ -491,7 +502,9 @@ class Header(BasicLocation, GeographicLocation):
         -----
         - filedate is automatically set to current UTC time
         - progvers is set to mt_metadata version
-        - Zero declination values are omitted from output
+        - A zero declination is omitted from output unless its epoch, its
+          comment or a model other than the default IGRF is set, so that
+          these are not lost
         - None values are skipped
 
         """
@@ -514,7 +527,7 @@ class Header(BasicLocation, GeographicLocation):
             elif key in ["elevation"]:
                 key = "elev"
             if "declination" in key:
-                if self.declination.value == 0.0:
+                if self.declination.value == 0.0 and not self._declination_set():
                     continue
             if key in ["lat", "lon", "long"] and value is not None:
                 if latlon_format.lower() == "dd":
@@ -528,6 +541,29 @@ class Header(BasicLocation, GeographicLocation):
             header_lines.append(f"\t{key.upper()}={value}\n")
         header_lines.append("\n")
         return header_lines
+
+    def _declination_set(self) -> bool:
+        """
+        Check whether anything other than the value of the declination is set.
+
+        Returns
+        -------
+        bool
+            True when the epoch, a comment with text or a model other than
+            the default IGRF is set.
+
+        Notes
+        -----
+        write_header uses this to keep a zero declination that has an epoch,
+        a comment or a model, which would otherwise be left out.
+        """
+        dec = self.declination
+        comment = dec.comments.value
+        return (
+            dec.epoch not in [None, "None", ""]
+            or dec.model != "IGRF"
+            or (isinstance(comment, str) and comment.strip() not in ["", "None"])
+        )
 
     def _validate_header_list(self, header_list: list[str] | None) -> list[str] | None:
         """

@@ -221,6 +221,51 @@ def _make_tf(with_tipper=False):
     return tf
 
 
+class TestDeclinationRoundTrip:
+    """Declination value, model and epoch survive an EDI write and read."""
+
+    def test_tf_round_trip(self, tmp_path):
+        """Test the declination value, model and epoch through an EDI write and read."""
+        fn = tmp_path / "dec01.edi"
+        _make_tf().write(fn=fn, file_type="edi")
+
+        tf = TF(fn=fn)
+        tf.read()
+        dec = tf.station_metadata.location.declination
+        assert dec.value == -1.07
+        assert dec.model == "IGRF-13"
+        assert dec.epoch == "2023.5"
+
+    def test_tf_plain_declination_line(self, tmp_path):
+        """Test reading an EDI whose header has only a plain DECLINATION= line."""
+        fn = tmp_path / "dec01.edi"
+        _make_tf().write(fn=fn, file_type="edi")
+        lines = [
+            ln
+            for ln in fn.read_text().splitlines()
+            if not ln.strip().startswith("DECLINATION")
+        ]
+        lines.insert(lines.index(">HEAD") + 1, "\tDECLINATION=-1.07")
+        fn.write_text("\n".join(lines) + "\n")
+
+        tf = TF(fn=fn)
+        tf.read()
+        assert tf.station_metadata.location.declination.value == -1.07
+
+    def test_tf_comment_round_trip(self, tmp_path):
+        """Test the declination comment through an EDI write and read."""
+        fn = tmp_path / "dec01.edi"
+        tf = _make_tf()
+        tf.station_metadata.location.declination.comments.value = "IGRF-13 at the site"
+        tf.write(fn=fn, file_type="edi")
+
+        tf_in = TF(fn=fn)
+        tf_in.read()
+        dec = tf_in.station_metadata.location.declination
+        assert dec.value == -1.07
+        assert dec.comments.value == "IGRF-13 at the site"
+
+
 class TestAzimuthWriteTwice:
     """Writing the same TF twice gives the same HMEAS/EMEAS AZM."""
 
