@@ -537,8 +537,6 @@ class DefineMeasurement(MetadataBase):
                 "negative.y",
                 "positive.x2",
                 "positive.y2",
-                "measurement_azimuth",
-                "translated_azimuth",
             ]:
                 if channel.get_attr_from_name(attr) is None:
                     channel.update_attribute(attr, 0)

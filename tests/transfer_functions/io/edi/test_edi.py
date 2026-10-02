@@ -287,6 +287,36 @@ class TestRotationAngleBlocks:
         assert warnings == []
 
 
+class TestAzimuthWriteTwice:
+    """Writing the same TF twice gives the same HMEAS/EMEAS AZM."""
+
+    @staticmethod
+    def _azm(fn):
+        azm = {}
+        for line in fn.read_text().splitlines():
+            if line.startswith((">HMEAS", ">EMEAS")):
+                items = dict(
+                    item.split("=", 1) for item in line.split()[1:] if "=" in item
+                )
+                azm[items["CHTYPE"].lower()] = float(items["AZM"])
+        return azm
+
+    def test_write_twice(self, tmp_path):
+        tf = _make_tf()
+        run = tf.station_metadata.runs[0]
+        for comp in ["ey", "hy"]:
+            run.get_channel(comp).measurement_azimuth = 90.0
+
+        azm = []
+        for name in ["first.edi", "second.edi"]:
+            tf.write(fn=tmp_path / name, file_type="edi")
+            azm.append(self._azm(tmp_path / name))
+
+        assert azm[0]["ey"] == 90.0
+        assert azm[0]["hy"] == 90.0
+        assert azm[1] == azm[0]
+
+
 # =============================================================================
 # run
 # =============================================================================
